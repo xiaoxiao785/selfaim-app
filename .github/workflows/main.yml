@@ -1,0 +1,336 @@
+.github/workflows/build.yml
+project.yml
+SelfaimApp/
+   AppDelegate.swift
+   SceneDelegate.swift
+   ViewController.swift
+   TouchInjector.swift
+   Info.plist
+   SelfaimApp.entitlements
+ScreenCapture/
+   SampleHandler.swift
+   Info.plist
+   ScreenCapture.entitlements
+import UIKit
+
+@main
+class AppDelegate: UIResponder, UIApplicationDelegate {
+    var window: UIWindow?
+
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        window = UIWindow(frame: UIScreen.main.bounds)
+        window?.backgroundColor = .clear
+        window?.rootViewController = ViewController()
+        window?.makeKeyAndVisible()
+        return true
+    }
+}
+import UIKit
+
+class ViewController: UIViewController {
+    let espView = ESPOverlayView()
+    var displayLink: CADisplayLink?
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        espView.frame = view.bounds
+        espView.backgroundColor = .clear
+        view.addSubview(espView)
+
+        displayLink = CADisplayLink(target: self, selector: #selector(update))
+        displayLink?.add(to: .main, forMode: .common)
+    }
+
+    @objc func update() {
+        // 从 App Group 读取敌人坐标
+        guard let data = UserDefaults(suiteName: "group.com.yourname.selfaim")?.data(forKey: "enemies"),
+              let enemies = try? JSONDecoder().decode([EnemyRect].self, from: data) else {
+            espView.enemies = []
+            return
+        }
+        espView.enemies = enemies
+
+        let center = CGPoint(x: view.bounds.width / 2, y: view.bounds.height / 2)
+        var best: EnemyRect?
+        var bestDist: CGFloat = 300
+        for e in enemies {
+            let head = CGPoint(x: e.midX, y: e.headY)
+            let dist = hypot(head.x - center.x, head.y - center.y)
+            if dist < bestDist {
+                bestDist = dist
+                best = e
+            }
+        }
+        guard let target = best else { return }
+
+        let targetPoint = CGPoint(x: target.midX, y: target.headY)
+        TouchInjector.moveFinger(from: center, to: targetPoint, steps: 5)
+
+        if bestDist < 10 {
+            TouchInjector.tap(at: targetPoint)
+        }
+    }
+}
+
+struct EnemyRect: Codable {
+    let minX, minY, maxX, maxY: CGFloat
+    var midX: CGFloat { (minX + maxX) / 2 }
+    var headY: CGFloat { minY + (maxY - minY) * 0.15 }
+}
+
+class ESPOverlayView: UIView {
+    var enemies: [EnemyRect] = [] { didSet { setNeedsDisplay() } }
+
+    override func draw(_ rect: CGRect) {
+        guard let ctx = UIGraphicsGetCurrentContext() else { return }
+        for e in enemies {
+            let rect = CGRect(x: e.minX, y: e.minY, width: e.maxX - e.minX, height: e.maxY - e.minY)
+            ctx.setStrokeColor(UIColor.green.cgColor)
+            ctx.stroke(rect)
+            let head = CGPoint(x: e.midX, y: e.headY)
+            ctx.setFillColor(UIColor.red.cgColor)
+            ctx.fillEllipse(in: CGRect(x: head.x-3, y: head.y-3, width: 6, height: 6))
+        }
+    }
+}
+import UIKit
+
+class ViewController: UIViewController {
+    let espView = ESPOverlayView()
+    var displayLink: CADisplayLink?
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        espView.frame = view.bounds
+        espView.backgroundColor = .clear
+        view.addSubview(espView)
+
+        displayLink = CADisplayLink(target: self, selector: #selector(update))
+        displayLink?.add(to: .main, forMode: .common)
+    }
+
+    @objc func update() {
+        // 从 App Group 读取敌人坐标
+        guard let data = UserDefaults(suiteName: "group.com.yourname.selfaim")?.data(forKey: "enemies"),
+              let enemies = try? JSONDecoder().decode([EnemyRect].self, from: data) else {
+            espView.enemies = []
+            return
+        }
+        espView.enemies = enemies
+
+        let center = CGPoint(x: view.bounds.width / 2, y: view.bounds.height / 2)
+        var best: EnemyRect?
+        var bestDist: CGFloat = 300
+        for e in enemies {
+            let head = CGPoint(x: e.midX, y: e.headY)
+            let dist = hypot(head.x - center.x, head.y - center.y)
+            if dist < bestDist {
+                bestDist = dist
+                best = e
+            }
+        }
+        guard let target = best else { return }
+
+        let targetPoint = CGPoint(x: target.midX, y: target.headY)
+        TouchInjector.moveFinger(from: center, to: targetPoint, steps: 5)
+
+        if bestDist < 10 {
+            TouchInjector.tap(at: targetPoint)
+        }
+    }
+}
+
+struct EnemyRect: Codable {
+    let minX, minY, maxX, maxY: CGFloat
+    var midX: CGFloat { (minX + maxX) / 2 }
+    var headY: CGFloat { minY + (maxY - minY) * 0.15 }
+}
+
+class ESPOverlayView: UIView {
+    var enemies: [EnemyRect] = [] { didSet { setNeedsDisplay() } }
+
+    override func draw(_ rect: CGRect) {
+        guard let ctx = UIGraphicsGetCurrentContext() else { return }
+        for e in enemies {
+            let rect = CGRect(x: e.minX, y: e.minY, width: e.maxX - e.minX, height: e.maxY - e.minY)
+            ctx.setStrokeColor(UIColor.green.cgColor)
+            ctx.stroke(rect)
+            let head = CGPoint(x: e.midX, y: e.headY)
+            ctx.setFillColor(UIColor.red.cgColor)
+            ctx.fillEllipse(in: CGRect(x: head.x-3, y: head.y-3, width: 6, height: 6))
+        }
+    }
+}
+import UIKit
+
+// 私有 API 声明
+@_silgen_name("GSEventCreateWithEventRecord")
+func GSEventCreateWithEventRecord(_ record: UnsafeRawPointer) -> Unmanaged<AnyObject>?
+
+@_silgen_name("GSSendEvent")
+func GSSendEvent(_ event: Unmanaged<AnyObject>)
+
+struct GSEventRecord {
+    var infoSize: UInt32 = UInt32(MemoryLayout<Self>.size)
+    var timestamp: TimeInterval = 0
+    var x: CGFloat = 0
+    var y: CGFloat = 0
+    var z: CGFloat = 0
+    var type: UInt32 = 0   // 1=down, 2=move, 3=up
+    var subtype: UInt32 = 0
+    var pressure: Float = 1.0
+    var padding: [UInt8] = Array(repeating: 0, count: 32)
+}
+
+class TouchInjector {
+    static func moveFinger(from: CGPoint, to: CGPoint, steps: Int = 10) {
+        for i in 0...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let x = from.x + (to.x - from.x) * t
+            let y = from.y + (to.y - from.y) * t
+            sendEvent(x: x, y: y, type: i == 0 ? 1 : (i == steps ? 3 : 2))
+            Thread.sleep(forTimeInterval: 0.008)
+        }
+    }
+
+    static func tap(at point: CGPoint) {
+        sendEvent(x: point.x, y: point.y, type: 1)
+        Thread.sleep(forTimeInterval: 0.05)
+        sendEvent(x: point.x, y: point.y, type: 3)
+    }
+
+    private static func sendEvent(x: CGFloat, y: CGFloat, type: UInt32) {
+        var record = GSEventRecord()
+        record.timestamp = Date().timeIntervalSince1970
+        record.x = x
+        record.y = y
+        record.type = type
+        if let event = GSEventCreateWithEventRecord(&record) {
+            GSSendEvent(event)
+        }
+    }
+}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleName</key><string>Selfaim</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>LSRequiresIPhoneOS</key><true/>
+    <key>UILaunchStoryboardName</key><string>LaunchScreen</string>
+    <key>UISupportedInterfaceOrientations</key>
+    <array><string>UIInterfaceOrientationPortrait</string></array>
+</dict>
+</plist>
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.com.yourname.selfaim</string>
+    </array>
+</dict>
+</plist>
+import ReplayKit
+import Vision
+
+class SampleHandler: RPBroadcastSampleHandler {
+    lazy var bodyRequest: VNDetectHumanRectanglesRequest = {
+        let req = VNDetectHumanRectanglesRequest()
+        req.upperBodyOnly = false
+        return req
+    }()
+
+    override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with type: RPSampleBufferType) {
+        guard type == .video,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+        try? handler.perform([bodyRequest])
+
+        guard let results = bodyRequest.results as? [VNHumanObservation] else { return }
+
+        let scale = UIScreen.main.scale
+        let screenW = UIScreen.main.bounds.width * scale
+        let screenH = UIScreen.main.bounds.height * scale
+
+        var enemies: [[String: CGFloat]] = []
+        for obs in results {
+            let bbox = obs.boundingBox
+            enemies.append([
+                "minX": bbox.minX * screenW,
+                "minY": (1 - bbox.maxY) * screenH,
+                "maxX": bbox.maxX * screenW,
+                "maxY": (1 - bbox.minY) * screenH
+            ])
+        }
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: enemies) {
+            UserDefaults(suiteName: "group.com.yourname.selfaim")?.set(jsonData, forKey: "enemies")
+        }
+    }
+}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleName</key><string>ScreenCapture</string>
+    <key>CFBundlePackageType</key><string>XPC!</string>
+    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.broadcast-services-upload</string>
+        <key>NSExtensionPrincipalClass</key>
+        <string>SampleHandler</string>
+        <key>RPBroadcastProcessMode</key>
+        <string>RPBroadcastProcessModeSampleBuffer</string>
+    </dict>
+</dict>
+</plist>
+name: SelfaimApp
+options:
+  bundleIdPrefix: com.yourname
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGNING_ALLOWED: NO
+targets:
+  SelfaimApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: SelfaimApp
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.yourname.selfaim
+      INFOPLIST_FILE: SelfaimApp/Info.plist
+    dependencies:
+      - target: ScreenCapture
+    entitlements:
+      path: SelfaimApp/SelfaimApp.entitlements
+  ScreenCapture:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ScreenCapture
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.yourname.selfaim.screencapture
+      INFOPLIST_FILE: ScreenCapture/Info.plist
+    entitlements:
+      path: ScreenCapture/ScreenCapture.entitlements
