@@ -1,4 +1,4 @@
-name: Build Selfaim IPA Final
+name: Build Selfaim IPA Final (TrollStore Optimized)
 
 on:
   workflow_dispatch:
@@ -13,8 +13,6 @@ jobs:
       - name: Create project files
         run: |
           mkdir -p SelfaimApp ScreenCapture
-
-          # ---- 主 App 代码 ----
           cat > SelfaimApp/AppDelegate.swift << 'SWIFTEOF'
           import UIKit
           @main
@@ -32,23 +30,19 @@ jobs:
 
           cat > SelfaimApp/ViewController.swift << 'SWIFTEOF'
           import UIKit
-
           class ViewController: UIViewController {
               let espView = ESPOverlayView()
               var displayLink: CADisplayLink?
               var lastFireTime: TimeInterval = 0
-
               override func viewDidLoad() {
                   super.viewDidLoad()
                   view.backgroundColor = .clear
                   espView.frame = view.bounds
                   espView.backgroundColor = .clear
                   view.addSubview(espView)
-                  
                   displayLink = CADisplayLink(target: self, selector: #selector(update))
                   displayLink?.add(to: .main, forMode: .common)
               }
-
               @objc func update() {
                   guard let data = UserDefaults(suiteName: "group.com.selfaim.demo")?.data(forKey: "enemies"),
                         let enemies = try? JSONDecoder().decode([EnemyRect].self, from: data) else {
@@ -56,11 +50,9 @@ jobs:
                       return
                   }
                   espView.enemies = enemies
-
                   let center = CGPoint(x: view.bounds.width / 2, y: view.bounds.height / 2)
                   var best: EnemyRect?
                   var bestDist: CGFloat = 9999
-                  
                   for e in enemies {
                       let head = CGPoint(x: e.midX, y: e.headY)
                       let dist = hypot(head.x - center.x, head.y - center.y)
@@ -69,13 +61,9 @@ jobs:
                           best = e
                       }
                   }
-
                   guard let target = best else { return }
-                  
                   let targetPoint = CGPoint(x: target.midX, y: target.headY)
-                  
                   TouchInjector.moveFinger(from: center, to: targetPoint)
-                  
                   let currentTime = Date().timeIntervalSince1970
                   if bestDist < 20 && (currentTime - lastFireTime) > 0.1 {
                       TouchInjector.tap(at: targetPoint)
@@ -83,13 +71,11 @@ jobs:
                   }
               }
           }
-
           struct EnemyRect: Codable {
               let minX, minY, maxX, maxY: CGFloat
               var midX: CGFloat { (minX + maxX) / 2 }
               var headY: CGFloat { minY + (maxY - minY) * 0.15 }
           }
-
           class ESPOverlayView: UIView {
               var enemies: [EnemyRect] = [] { didSet { setNeedsDisplay() } }
               override func draw(_ rect: CGRect) {
@@ -108,12 +94,10 @@ jobs:
 
           cat > SelfaimApp/TouchInjector.swift << 'SWIFTEOF'
           import UIKit
-
           @_silgen_name("GSEventCreateWithEventRecord")
           func GSEventCreateWithEventRecord(_ record: UnsafeRawPointer) -> Unmanaged<AnyObject>?
           @_silgen_name("GSSendEvent")
           func GSSendEvent(_ event: Unmanaged<AnyObject>)
-
           struct GSEventRecord {
               var infoSize: UInt32 = UInt32(MemoryLayout<Self>.size)
               var timestamp: TimeInterval = 0
@@ -125,19 +109,16 @@ jobs:
               var pressure: Float = 1.0
               var padding: [UInt8] = Array(repeating: 0, count: 32)
           }
-
           class TouchInjector {
               static func moveFinger(from: CGPoint, to: CGPoint, steps: Int = 1) {
                   sendEvent(x: to.x, y: to.y, type: 3) 
                   Thread.sleep(forTimeInterval: 0.002)
               }
-              
               static func tap(at point: CGPoint) {
                   sendEvent(x: point.x, y: point.y, type: 1)
                   Thread.sleep(forTimeInterval: 0.05)
                   sendEvent(x: point.x, y: point.y, type: 3)
               }
-              
               private static func sendEvent(x: CGFloat, y: CGFloat, type: UInt32) {
                   var record = GSEventRecord()
                   record.timestamp = Date().timeIntervalSince1970
@@ -148,7 +129,6 @@ jobs:
           }
           SWIFTEOF
 
-          # ---- 主 App 的 Info.plist 和 entitlements ----
           cat > SelfaimApp/Info.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -182,29 +162,24 @@ jobs:
           </plist>
           EOF
 
-          # ---- Broadcast Upload Extension 代码 ----
           cat > ScreenCapture/SampleHandler.swift << 'SWIFTEOF'
           import ReplayKit
           import Vision
-
           class SampleHandler: RPBroadcastSampleHandler {
               lazy var bodyRequest: VNDetectHumanRectanglesRequest = {
                   let req = VNDetectHumanRectanglesRequest()
                   req.upperBodyOnly = false
                   return req
               }()
-
               override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with type: RPSampleBufferType) {
                   guard type == .video, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
                   let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
                   try? handler.perform([bodyRequest])
                   guard let results = bodyRequest.results as? [VNHumanObservation] else { return }
-
                   let scale = UIScreen.main.scale
                   let sw = UIScreen.main.bounds.width * scale
                   let sh = UIScreen.main.bounds.height * scale
                   var enemies: [[String: CGFloat]] = []
-                  
                   for obs in results {
                       let b = obs.boundingBox
                       let pixelWidth = b.width * sw
@@ -263,7 +238,6 @@ jobs:
           </plist>
           EOF
 
-          # ---- project.yml ----
           cat > project.yml << 'EOF'
           name: SelfaimApp
           options:
@@ -300,15 +274,8 @@ jobs:
                 path: ScreenCapture/ScreenCapture.entitlements
           EOF
 
-      - name: Install xcodegen
-        run: |
-          curl -L -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.40.0/xcodegen-2.40.0.zip
-          unzip xcodegen.zip
-          chmod +x xcodegen
-          sudo mv xcodegen /usr/local/bin/xcodegen
-
       - name: Generate Xcode project
-        run: xcodegen generate
+        uses: yonaskolb/xcodegen@v2
 
       - name: Build archive
         run: |
@@ -322,15 +289,10 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
-      # ---- 关键修复点：直接把 brew install ldid 换成手动下载 ldid ----
       - name: Create IPA
         run: |
           mkdir Payload
           cp -r ./build/App.xcarchive/Products/Applications/SelfaimApp.app Payload/
-          curl -L -o ldid https://github.com/ProcursusTeam/ldid/releases/download/v2.1.2-procursus4/ldid
-          chmod +x ldid
-          ./ldid -S Payload/SelfaimApp.app/SelfaimApp
-          ./ldid -S Payload/SelfaimApp.app/PlugIns/ScreenCapture.appex/ScreenCapture
           zip -r SelfaimApp.ipa Payload
           mkdir output
           mv SelfaimApp.ipa output/
