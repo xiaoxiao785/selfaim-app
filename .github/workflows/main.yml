@@ -278,9 +278,10 @@ jobs:
         run: |
           brew install xcodegen
           xcodegen generate
-
-      - name: Build archive
+- name: Build archive
         run: |
+          # 强制切换 GitHub 服务器的 Xcode 环境到最新版 (Xcode 16)
+          sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
           xcodebuild archive \
             -project SelfaimApp.xcodeproj \
             -scheme SelfaimApp \
@@ -290,6 +291,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
+     
 
       - name: Create IPA
         run: |
