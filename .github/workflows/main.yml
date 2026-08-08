@@ -61,7 +61,6 @@ jobs:
                   var best: EnemyRect?
                   var bestDist: CGFloat = 9999
                   
-                  // 全屏搜索最近距离目标
                   for e in enemies {
                       let head = CGPoint(x: e.midX, y: e.headY)
                       let dist = hypot(head.x - center.x, head.y - center.y)
@@ -75,11 +74,9 @@ jobs:
                   
                   let targetPoint = CGPoint(x: target.midX, y: target.headY)
                   
-                  // 核心：绝对精简的瞬移逻辑，无任何延迟和多线程干扰
                   TouchInjector.moveFinger(from: center, to: targetPoint)
                   
                   let currentTime = Date().timeIntervalSince1970
-                  // 极速开火判定
                   if bestDist < 20 && (currentTime - lastFireTime) > 0.1 {
                       TouchInjector.tap(at: targetPoint)
                       lastFireTime = currentTime
@@ -130,9 +127,7 @@ jobs:
           }
 
           class TouchInjector {
-              // 一步到位实现瞬间拉枪
               static func moveFinger(from: CGPoint, to: CGPoint, steps: Int = 1) {
-                  // 直接执行一次瞬移
                   sendEvent(x: to.x, y: to.y, type: 3) 
                   Thread.sleep(forTimeInterval: 0.002)
               }
@@ -306,7 +301,11 @@ jobs:
           EOF
 
       - name: Install xcodegen
-        run: brew install xcodegen
+        run: |
+          curl -L -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.40.0/xcodegen-2.40.0.zip
+          unzip xcodegen.zip
+          chmod +x xcodegen
+          sudo mv xcodegen /usr/local/bin/xcodegen
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -323,13 +322,15 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
+      # ---- 关键修复点：直接把 brew install ldid 换成手动下载 ldid ----
       - name: Create IPA
         run: |
           mkdir Payload
           cp -r ./build/App.xcarchive/Products/Applications/SelfaimApp.app Payload/
-          brew install ldid
-          ldid -S Payload/SelfaimApp.app/SelfaimApp
-          ldid -S Payload/SelfaimApp.app/PlugIns/ScreenCapture.appex/ScreenCapture
+          curl -L -o ldid https://github.com/ProcursusTeam/ldid/releases/download/v2.1.2-procursus4/ldid
+          chmod +x ldid
+          ./ldid -S Payload/SelfaimApp.app/SelfaimApp
+          ./ldid -S Payload/SelfaimApp.app/PlugIns/ScreenCapture.appex/ScreenCapture
           zip -r SelfaimApp.ipa Payload
           mkdir output
           mv SelfaimApp.ipa output/
