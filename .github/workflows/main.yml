@@ -1,4 +1,4 @@
-name: Build Selfaim IPA Final (TrollStore Optimized)
+name: Build Selfaim IPA Final
 
 on:
   workflow_dispatch:
@@ -275,7 +275,9 @@ jobs:
           EOF
 
       - name: Generate Xcode project
-        uses: yonaskolb/xcodegen@v2
+        run: |
+          brew install xcodegen
+          xcodegen generate
 
       - name: Build archive
         run: |
