@@ -1,0 +1,340 @@
+name: Build Selfaim IPA Final
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create project files
+        run: |
+          mkdir -p SelfaimApp ScreenCapture
+
+          # ---- 主 App 代码 ----
+          cat > SelfaimApp/AppDelegate.swift << 'SWIFTEOF'
+          import UIKit
+          @main
+          class AppDelegate: UIResponder, UIApplicationDelegate {
+              var window: UIWindow?
+              func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+                  window = UIWindow(frame: UIScreen.main.bounds)
+                  window?.backgroundColor = .clear
+                  window?.rootViewController = ViewController()
+                  window?.makeKeyAndVisible()
+                  return true
+              }
+          }
+          SWIFTEOF
+
+          cat > SelfaimApp/ViewController.swift << 'SWIFTEOF'
+          import UIKit
+
+          class ViewController: UIViewController {
+              let espView = ESPOverlayView()
+              var displayLink: CADisplayLink?
+              var lastFireTime: TimeInterval = 0
+
+              override func viewDidLoad() {
+                  super.viewDidLoad()
+                  view.backgroundColor = .clear
+                  espView.frame = view.bounds
+                  espView.backgroundColor = .clear
+                  view.addSubview(espView)
+                  
+                  displayLink = CADisplayLink(target: self, selector: #selector(update))
+                  displayLink?.add(to: .main, forMode: .common)
+              }
+
+              @objc func update() {
+                  guard let data = UserDefaults(suiteName: "group.com.selfaim.demo")?.data(forKey: "enemies"),
+                        let enemies = try? JSONDecoder().decode([EnemyRect].self, from: data) else {
+                      espView.enemies = []
+                      return
+                  }
+                  espView.enemies = enemies
+
+                  let center = CGPoint(x: view.bounds.width / 2, y: view.bounds.height / 2)
+                  var best: EnemyRect?
+                  var bestDist: CGFloat = 9999
+                  
+                  for e in enemies {
+                      let head = CGPoint(x: e.midX, y: e.headY)
+                      let dist = hypot(head.x - center.x, head.y - center.y)
+                      if dist < bestDist { 
+                          bestDist = dist
+                          best = e
+                      }
+                  }
+
+                  guard let target = best else { return }
+                  
+                  let targetPoint = CGPoint(x: target.midX, y: target.headY)
+                  
+                  TouchInjector.moveFinger(from: center, to: targetPoint)
+                  
+                  let currentTime = Date().timeIntervalSince1970
+                  if bestDist < 20 && (currentTime - lastFireTime) > 0.1 {
+                      TouchInjector.tap(at: targetPoint)
+                      lastFireTime = currentTime
+                  }
+              }
+          }
+
+          struct EnemyRect: Codable {
+              let minX, minY, maxX, maxY: CGFloat
+              var midX: CGFloat { (minX + maxX) / 2 }
+              var headY: CGFloat { minY + (maxY - minY) * 0.15 }
+          }
+
+          class ESPOverlayView: UIView {
+              var enemies: [EnemyRect] = [] { didSet { setNeedsDisplay() } }
+              override func draw(_ rect: CGRect) {
+                  guard let ctx = UIGraphicsGetCurrentContext() else { return }
+                  for e in enemies {
+                      let rect = CGRect(x: e.minX, y: e.minY, width: e.maxX - e.minX, height: e.maxY - e.minY)
+                      ctx.setStrokeColor(UIColor.green.cgColor)
+                      ctx.stroke(rect)
+                      let head = CGPoint(x: e.midX, y: e.headY)
+                      ctx.setFillColor(UIColor.red.cgColor)
+                      ctx.fillEllipse(in: CGRect(x: head.x-3, y: head.y-3, width: 6, height: 6))
+                  }
+              }
+          }
+          SWIFTEOF
+
+          cat > SelfaimApp/TouchInjector.swift << 'SWIFTEOF'
+          import UIKit
+
+          @_silgen_name("GSEventCreateWithEventRecord")
+          func GSEventCreateWithEventRecord(_ record: UnsafeRawPointer) -> Unmanaged<AnyObject>?
+          @_silgen_name("GSSendEvent")
+          func GSSendEvent(_ event: Unmanaged<AnyObject>)
+
+          struct GSEventRecord {
+              var infoSize: UInt32 = UInt32(MemoryLayout<Self>.size)
+              var timestamp: TimeInterval = 0
+              var x: CGFloat = 0
+              var y: CGFloat = 0
+              var z: CGFloat = 0
+              var type: UInt32 = 0
+              var subtype: UInt32 = 0
+              var pressure: Float = 1.0
+              var padding: [UInt8] = Array(repeating: 0, count: 32)
+          }
+
+          class TouchInjector {
+              static func moveFinger(from: CGPoint, to: CGPoint, steps: Int = 1) {
+                  sendEvent(x: to.x, y: to.y, type: 3) 
+                  Thread.sleep(forTimeInterval: 0.002)
+              }
+              
+              static func tap(at point: CGPoint) {
+                  sendEvent(x: point.x, y: point.y, type: 1)
+                  Thread.sleep(forTimeInterval: 0.05)
+                  sendEvent(x: point.x, y: point.y, type: 3)
+              }
+              
+              private static func sendEvent(x: CGFloat, y: CGFloat, type: UInt32) {
+                  var record = GSEventRecord()
+                  record.timestamp = Date().timeIntervalSince1970
+                  record.x = x; record.y = y; record.type = type
+                  guard let event = GSEventCreateWithEventRecord(&record) else { return }
+                  GSSendEvent(event)
+              }
+          }
+          SWIFTEOF
+
+          # ---- 主 App 的 Info.plist 和 entitlements ----
+          cat > SelfaimApp/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDevelopmentRegion</key><string>en</string>
+              <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+              <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+              <key>CFBundleName</key><string>Selfaim</string>
+              <key>CFBundlePackageType</key><string>APPL</string>
+              <key>CFBundleShortVersionString</key><string>1.0</string>
+              <key>CFBundleVersion</key><string>1</string>
+              <key>LSRequiresIPhoneOS</key><true/>
+              <key>UILaunchStoryboardName</key><string>LaunchScreen</string>
+              <key>UISupportedInterfaceOrientations</key>
+              <array><string>UIInterfaceOrientationPortrait</string></array>
+          </dict>
+          </plist>
+          EOF
+
+          cat > SelfaimApp/SelfaimApp.entitlements << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.application-groups</key>
+              <array>
+                  <string>group.com.selfaim.demo</string>
+              </array>
+          </dict>
+          </plist>
+          EOF
+
+          # ---- Broadcast Upload Extension 代码 ----
+          cat > ScreenCapture/SampleHandler.swift << 'SWIFTEOF'
+          import ReplayKit
+          import Vision
+
+          class SampleHandler: RPBroadcastSampleHandler {
+              lazy var bodyRequest: VNDetectHumanRectanglesRequest = {
+                  let req = VNDetectHumanRectanglesRequest()
+                  req.upperBodyOnly = false
+                  return req
+              }()
+
+              override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with type: RPSampleBufferType) {
+                  guard type == .video, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+                  let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+                  try? handler.perform([bodyRequest])
+                  guard let results = bodyRequest.results as? [VNHumanObservation] else { return }
+
+                  let scale = UIScreen.main.scale
+                  let sw = UIScreen.main.bounds.width * scale
+                  let sh = UIScreen.main.bounds.height * scale
+                  var enemies: [[String: CGFloat]] = []
+                  
+                  for obs in results {
+                      let b = obs.boundingBox
+                      let pixelWidth = b.width * sw
+                      let pixelHeight = b.height * sh
+                      if pixelWidth > 15 && pixelHeight > 30 { 
+                          enemies.append([
+                              "minX": b.minX * sw,
+                              "minY": (1 - b.maxY) * sh,
+                              "maxX": b.maxX * sw,
+                              "maxY": (1 - b.minY) * sh
+                          ])
+                      }
+                  }
+                  if let json = try? JSONSerialization.data(withJSONObject: enemies) {
+                      UserDefaults(suiteName: "group.com.selfaim.demo")?.set(json, forKey: "enemies")
+                  }
+              }
+          }
+          SWIFTEOF
+
+          cat > ScreenCapture/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDevelopmentRegion</key><string>en</string>
+              <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+              <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+              <key>CFBundleName</key><string>ScreenCapture</string>
+              <key>CFBundlePackageType</key><string>XPC!</string>
+              <key>CFBundleShortVersionString</key><string>1.0</string>
+              <key>CFBundleVersion</key><string>1</string>
+              <key>NSExtension</key>
+              <dict>
+                  <key>NSExtensionPointIdentifier</key>
+                  <string>com.apple.broadcast-services-upload</string>
+                  <key>NSExtensionPrincipalClass</key>
+                  <string>SampleHandler</string>
+                  <key>RPBroadcastProcessMode</key>
+                  <string>RPBroadcastProcessModeSampleBuffer</string>
+              </dict>
+          </dict>
+          </plist>
+          EOF
+
+          cat > ScreenCapture/ScreenCapture.entitlements << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.application-groups</key>
+              <array>
+                  <string>group.com.selfaim.demo</string>
+              </array>
+          </dict>
+          </plist>
+          EOF
+
+          # ---- project.yml ----
+          cat > project.yml << 'EOF'
+          name: SelfaimApp
+          options:
+            bundleIdPrefix: com.selfaim
+            deploymentTarget:
+              iOS: "15.0"
+          settings:
+            base:
+              CODE_SIGN_IDENTITY: ""
+              CODE_SIGNING_REQUIRED: NO
+              CODE_SIGNING_ALLOWED: NO
+          targets:
+            SelfaimApp:
+              type: application
+              platform: iOS
+              sources:
+                - path: SelfaimApp
+              settings:
+                PRODUCT_BUNDLE_IDENTIFIER: com.selfaim.demo
+                INFOPLIST_FILE: SelfaimApp/Info.plist
+              dependencies:
+                - target: ScreenCapture
+              entitlements:
+                path: SelfaimApp/SelfaimApp.entitlements
+            ScreenCapture:
+              type: app-extension
+              platform: iOS
+              sources:
+                - path: ScreenCapture
+              settings:
+                PRODUCT_BUNDLE_IDENTIFIER: com.selfaim.demo.screencapture
+                INFOPLIST_FILE: ScreenCapture/Info.plist
+              entitlements:
+                path: ScreenCapture/ScreenCapture.entitlements
+          EOF
+
+      - name: Install xcodegen
+        # 修复点！改用直接下载二进制文件的方式，完美绕开 Homebrew 环境报错
+        run: |
+          curl -L -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.40.0/xcodegen-2.40.0.zip
+          unzip xcodegen.zip
+          chmod +x xcodegen
+          sudo mv xcodegen /usr/local/bin/xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build archive
+        run: |
+          xcodebuild archive \
+            -project SelfaimApp.xcodeproj \
+            -scheme SelfaimApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath ./build/App.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Create IPA
+        run: |
+          mkdir Payload
+          cp -r ./build/App.xcarchive/Products/Applications/SelfaimApp.app Payload/
+          brew install ldid
+          ldid -S Payload/SelfaimApp.app/SelfaimApp
+          ldid -S Payload/SelfaimApp.app/PlugIns/ScreenCapture.appex/ScreenCapture
+          zip -r SelfaimApp.ipa Payload
+          mkdir output
+          mv SelfaimApp.ipa output/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SelfaimApp.ipa
+          path: output/SelfaimApp.ipa
