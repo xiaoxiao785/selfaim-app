@@ -1,21 +1,22 @@
+name: Build Selfaim IPA Final
 
-bane
+on:
   workflow_dispatch:
 
-职位:
-  构建:
-    运行于: macos-14
-    步骤:
-      - 名称: 结账
-        使用: actions/checkout@v4
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - 名称: 创建项目文件
-        运行: |
+      - name: Create project files
+        run: |
           mkdir -p SelfaimApp ScreenCapture
 
           # ---- 主 App 代码 ----
           cat > SelfaimApp/AppDelegate.swift << 'SWIFTEOF'
-          导入 UIKit
+          import UIKit
           @main
           class AppDelegate: UIResponder, UIApplicationDelegate {
               var window: UIWindow?
@@ -35,13 +36,15 @@ bane
           class ViewController: UIViewController {
               let espView = ESPOverlayView()
               var displayLink: CADisplayLink?
+              var lastFireTime: TimeInterval = 0
 
-              重写 func viewDidLoad() {
+              重写 viewDidLoad() {
                   super.viewDidLoad()
                   view.backgroundColor = .clear
                   espView.frame = view.bounds
                   espView.backgroundColor = .clear
                   view.addSubview(espView)
+                  
                   displayLink = CADisplayLink(target: self, selector: #selector(update))
                   displayLink?.add(to: .main, forMode: .common)
               }
@@ -50,22 +53,37 @@ bane
                   guard let data = UserDefaults(suiteName: "group.com.selfaim.demo")?.data(forKey: "enemies"),
                         let enemies = try? JSONDecoder().decode([EnemyRect].self, from: data) else {
                       espView.enemies = []
-                      返回
-
+                      return
+                  }
                   espView.enemies = enemies
 
                   let center = CGPoint(x: view.bounds.width / 2, y: view.bounds.height / 2)
                   var best: EnemyRect?
-                  var bestDist: CGFloat = 300
-                  对于 e 在 enemies 中 {
+                  var bestDist: CGFloat = 9999
+                  
+                  // 全屏搜索最近距离目标
+                  for e in enemies {
                       let head = CGPoint(x: e.midX, y: e.headY)
                       let dist = hypot(head.x - center.x, head.y - center.y)
-                      if dist < bestDist { bestDist = dist; best = e }
+                      if dist < bestDist { 
+                          bestDist = dist
+                          best = e
+                      }
                   }
+
                   guard let target = best else { return }
+                  
                   let targetPoint = CGPoint(x: target.midX, y: target.headY)
-                  TouchInjector.moveFinger(from: center, to: targetPoint, steps: 5)
-                  if bestDist < 10 { TouchInjector.tap(at: targetPoint) }
+                  
+                  // 核心：绝对精简的瞬移逻辑，无任何延迟和多线程干扰
+                  TouchInjector.moveFinger(from: center, to: targetPoint)
+                  
+                  let currentTime = Date().timeIntervalSince1970
+                  // 极速开火判定
+                  if bestDist < 20 && (currentTime - lastFireTime) > 0.1 {
+                      TouchInjector.tap(at: targetPoint)
+                      lastFireTime = currentTime
+                  }
               }
           }
 
@@ -74,6 +92,7 @@ bane
               var midX: CGFloat { (minX + maxX) / 2 }
               var headY: CGFloat { minY + (maxY - minY) * 0.15 }
           }
+
           class ESPOverlayView: UIView {
               var enemies: [EnemyRect] = [] { didSet { setNeedsDisplay() } }
               override func draw(_ rect: CGRect) {
@@ -111,28 +130,29 @@ bane
           }
 
           class TouchInjector {
-              static func moveFinger(from: CGPoint, to: CGPoint, steps: Int = 10) {
-                  for i in 0...steps {
-                      let t = CGFloat(i) / CGFloat(steps)
-                      let x = from.x + (to.x - from.x) * t
-                      let y = from.y + (to.y - from.y) * t
-                      sendEvent(x: x, y: y, type: i == 0 ? 1 : (i == steps ? 3 : 2))
-                      Thread.sleep(forTimeInterval: 0.008)
-                  }
+              // 一步到位实现瞬间拉枪
+              static func moveFinger(from: CGPoint, to: CGPoint, steps: Int = 1) {
+                  // 直接执行一次瞬移
+                  sendEvent(x: to.x, y: to.y, type: 3) 
+                  Thread.sleep(forTimeInterval: 0.002)
               }
+              
               static func tap(at point: CGPoint) {
                   sendEvent(x: point.x, y: point.y, type: 1)
                   Thread.sleep(forTimeInterval: 0.05)
                   sendEvent(x: point.x, y: point.y, type: 3)
               }
+              
               private static func sendEvent(x: CGFloat, y: CGFloat, type: UInt32) {
                   var record = GSEventRecord()
                   record.timestamp = Date().timeIntervalSince1970
                   record.x = x; record.y = y; record.type = type
-                  if let event = GSEventCreateWithEventRecord(&record) { GSSendEvent(event) }
+                  guard let event = GSEventCreateWithEventRecord(&record) else { return }
+                  GSSendEvent(event)
               }
           }
           SWIFTEOF
+
           # ---- 主 App 的 Info.plist 和 entitlements ----
           cat > SelfaimApp/Info.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -184,18 +204,24 @@ bane
                   let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
                   try? handler.perform([bodyRequest])
                   guard let results = bodyRequest.results as? [VNHumanObservation] else { return }
+
                   let scale = UIScreen.main.scale
                   let sw = UIScreen.main.bounds.width * scale
                   let sh = UIScreen.main.bounds.height * scale
                   var enemies: [[String: CGFloat]] = []
+                  
                   for obs in results {
                       let b = obs.boundingBox
-                      enemies.append([
-                          "minX": b.minX * sw,
-                          "minY": (1 - b.maxY) * sh,
-                          "maxX": b.maxX * sw,
-                          "maxY": (1 - b.minY) * sh
-                      ])
+                      let pixelWidth = b.width * sw
+                      let pixelHeight = b.height * sh
+                      if pixelWidth > 15 && pixelHeight > 30 { 
+                          enemies.append([
+                              "minX": b.minX * sw,
+                              "minY": (1 - b.maxY) * sh,
+                              "maxX": b.maxX * sw,
+                              "maxY": (1 - b.minY) * sh
+                          ])
+                      }
                   }
                   if let json = try? JSONSerialization.data(withJSONObject: enemies) {
                       UserDefaults(suiteName: "group.com.selfaim.demo")?.set(json, forKey: "enemies")
@@ -241,6 +267,7 @@ bane
           </dict>
           </plist>
           EOF
+
           # ---- project.yml ----
           cat > project.yml << 'EOF'
           name: SelfaimApp
@@ -310,5 +337,4 @@ bane
       - uses: actions/upload-artifact@v4
         with:
           name: SelfaimApp.ipa
-          path: output/SelfaimApp.ipa
-```
+          路径: output/SelfaimApp.ipa
