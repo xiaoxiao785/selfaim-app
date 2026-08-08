@@ -21,24 +21,24 @@ jobs:
           class AppDelegate: UIResponder, UIApplicationDelegate {
               var window: UIWindow?
               func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-                  窗口 = UIWindow(frame: UIScreen.main.bounds)
-                  窗口?.backgroundColor = .clear
+                  window = UIWindow(frame: UIScreen.main.bounds)
+                  window?.backgroundColor = .clear
                   window?.rootViewController = ViewController()
-                  窗口?.makeKeyAndVisible()
-                  返回 true
+                  window?.makeKeyAndVisible()
+                  return true
               }
           }
           SWIFTEOF
 
           cat > SelfaimApp/ViewController.swift << 'SWIFTEOF'
-          导入 UIKit
+          import UIKit
 
           class ViewController: UIViewController {
               let espView = ESPOverlayView()
               var displayLink: CADisplayLink?
               var lastFireTime: TimeInterval = 0
 
-              重写 viewDidLoad() {
+              override func viewDidLoad() {
                   super.viewDidLoad()
                   view.backgroundColor = .clear
                   espView.frame = view.bounds
@@ -337,4 +337,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: SelfaimApp.ipa
-          路径: output/SelfaimApp.ipa
+          path: output/SelfaimApp.ipa
